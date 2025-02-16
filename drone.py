@@ -1,18 +1,49 @@
 import math
-import random
 import time
 from dronekit import connect, VehicleMode, LocationGlobalRelative
+
+class Location:
+    def __init__(self, lat, lon, alt, home_position=None):
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+        self.home_position = home_position or self
+        self.x, self.y = self.gps_to_relative()
+    
+    def gps_to_relative(self):
+        dlat = (self.lat - self.home_position.lat) * 111320
+        dlon = (self.lon - self.home_position.lon) * 111320 * math.cos(math.radians(self.home_position.lat))
+        return dlat, dlon
+
+    def to_global(self):
+        lat_offset = self.x / 111320 + self.home_position.lat
+        lon_offset = self.y / (111320 * math.cos(math.radians(self.home_position.lat))) + self.home_position.lon
+        return LocationGlobalRelative(lat_offset, lon_offset, self.alt)
+    
+    def __str__(self):
+        return f"Location(lat={self.lat}, lon={self.lon}, alt={self.alt})"
+    
+    def __eq__(self, other):
+        """Check if two locations are equal."""
+        if isinstance(other, Location):
+            return (self.lat, self.lon, self.alt) == (other.lat, other.lon, other.alt)
+        return False
+
+    def __hash__(self):
+        """Make Location instances hashable."""
+        return hash((self.lat, self.lon, self.alt))
 
 
 class Drone:
     def __init__(self, connection_string):
         self.connection_string = connection_string
         self.vehicle = None
-        self.position = None  # Current position (lat, lon, alt)
-        self.velocity = {"lat": 0, "lon": 0}  # Velocity in lat/lon degrees
-        self.pbest = None  # Personal best position (lat, lon, alt)
+        self.position = None
+        self.velocity = {"x": 0, "y": 0}  # Velocity in meters
+        self.pbest = None  # Personal best position
         self.pbest_fitness = float("inf")  # Personal best fitness
         self.current_fitness = float("inf")  # Current fitness
+        self.path = []  # List of waypoints to follow
 
     def connect(self):
         print(f"Connecting to vehicle on {self.connection_string}...")
@@ -40,59 +71,22 @@ class Drone:
                 break
             time.sleep(1)
 
-    def update_position(self):
-        """Update the current position of the drone."""
+    def update_position(self, home_position: Location):
+        """Update the current position of the drone in relative coordinates."""
         location = self.vehicle.location.global_relative_frame
-        self.position = {"lat": location.lat, "lon": location.lon, "alt": location.alt}
+        self.position = Location(location.lat, location.lon, location.alt, home_position)
+        self.path.append(self.position)
         return self.position
 
-    def evaluate_fitness(self, objective_function):
-        """Evaluate the fitness of the drone based on its current position."""
-        self.update_position()
-        self.current_fitness = objective_function(self.position)
-        # Update personal best if necessary
-        if self.current_fitness < self.pbest_fitness:
-            self.pbest = self.position.copy()
-            self.pbest_fitness = self.current_fitness
-
-    def update_velocity_and_position(self, global_best, w, c1, c2):
-        """Update velocity and position using the PSO formula."""
-        r1 = random.random()
-        r2 = random.random()
-
-        # Update velocity
-        self.velocity["lat"] = (
-            w * self.velocity["lat"]
-            + c1 * r1 * (self.pbest["lat"] - self.position["lat"])
-            + c2 * r2 * (global_best["lat"] - self.position["lat"])
-        )
-        self.velocity["lon"] = (
-            w * self.velocity["lon"]
-            + c1 * r1 * (self.pbest["lon"] - self.position["lon"])
-            + c2 * r2 * (global_best["lon"] - self.position["lon"])
-        )
-
-        # Update position
-        self.position["lat"] += self.velocity["lat"]
-        self.position["lon"] += self.velocity["lon"]
-
-    def move_to_position(self, target_position):
+    def move_to_position(self, target_position: Location):
         """Moves the drone to the given target position."""
-        # print(f"Moving to position {target_position} ({self.connection_string})")
-        waypoint = LocationGlobalRelative(target_position["lat"], target_position["lon"], target_position["alt"])
+        waypoint = target_position.to_global()
         self.vehicle.simple_goto(waypoint)
-
-    def get_distance_meters(self, location1, location2):
-        """Calculate the ground distance in meters between two locations."""
-        dlat = location2["lat"] - location1["lat"]
-        dlon = location2["lon"] - location1["lon"]
-        return math.sqrt((dlat * 111320) ** 2 + (dlon * 111320 * math.cos(math.radians(location1["lat"]))) ** 2)
     
     def return_to_launch(self):
         print(f"Returning to Launch for {self.connection_string}...")
         self.vehicle.mode = VehicleMode("RTL")
         while self.vehicle.mode.name != "RTL":
-            # print(f" Waiting for RTL mode to activate... ({self.connection_string})")
             time.sleep(1)
         print(f"Vehicle is returning to launch. ({self.connection_string})")
 
