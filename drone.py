@@ -50,6 +50,16 @@ class Drone:
         self.vehicle = connect(self.connection_string, wait_ready=True)
         print(f"Connected to vehicle on {self.connection_string}.")
 
+    def get_status(self):
+        print(f"Vehicle status: {self.vehicle.system_status.state} ({self.connection_string})")
+        print(f"GPS: {self.vehicle.gps_0.fix_type}")
+        print(f"Battery: {self.vehicle.battery}")
+        print(f"Mode: {self.vehicle.mode.name}")
+        print(f"Attitude: {self.vehicle.attitude}")
+
+    def get_parameters(self):
+        print(f"Vehicle parameters: {list(self.vehicle.parameters.items())}")
+
     def arm_and_takeoff(self, altitude):
         print(f"Waiting for position estimate...... ({self.connection_string})")
         while not self.vehicle.gps_0.fix_type >= 3 or not self.vehicle.ekf_ok:

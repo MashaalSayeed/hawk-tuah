@@ -17,7 +17,7 @@ sitls = []
 # Function to launch a single SITL instance
 def launch_sitl(index, position):
     sitl = SITL()
-    sitl.download('copter', '4.7')
+    sitl.download('copter', '3.3')
 
     sitl_args = [
         f"-I{index}",
