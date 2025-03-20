@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 import random
 
 # PSO Parameters
-NUM_DRONES = 20     # Number of drones (particles)
+NUM_DRONES = 10     # Number of drones (particles)
 DIMENSIONS = 2      # 2D space
 ITERATIONS = 500    # Max number of iterations
-NUM_FIRES = 10       # Number of fire sources
+NUM_FIRES = 20       # Number of fire sources
 FIRE_SPREAD_RATE = 0.5  # Rate at which fire spreads outward per iteration
 
 # Initialize fire locations randomly
@@ -19,7 +19,7 @@ C1 = 0.75   # Cognitive (personal best) coefficient
 C2 = 0.75   # Social (global best) coefficient
 
 # Initialize drone positions and velocities
-positions = np.random.uniform(0, 30, (NUM_DRONES, DIMENSIONS))  # Random start positions
+positions = np.random.uniform(0, 99, (NUM_DRONES, DIMENSIONS))  # Random start positions
 velocities = np.random.uniform(-1, 1, (NUM_DRONES, DIMENSIONS))  # Random initial velocities
 p_best_positions = np.copy(positions)  # Personal best positions
 p_best_scores = np.min(np.linalg.norm(p_best_positions[:, None] - fires, axis=2), axis=1)  # Distance to nearest fire
