@@ -2,7 +2,7 @@ import random
 import time
 import math
 import csv
-from drone import Drone
+from dronev import Drone
 
 class DroneSwarmACO:
     def __init__(self, connection_strings, target_position, max_iterations=200, evaporation_rate=0.1, alpha=1, beta=2, logging=False):
