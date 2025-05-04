@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS Coordinate Selector</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        #map {
+            flex: 1;
+            width: 100%;
+        }
+        
+        .control-panel {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .form-row {
+            display: flex;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+        
+        .form-row label {
+            width: 80px;
+            font-weight: bold;
+        }
+        
+        .form-row input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        .radius-circle {
+            stroke: #3388ff;
+            stroke-opacity: 0.8;
+            stroke-width: 2;
+            fill: #3388ff;
+            fill-opacity: 0.2;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="control-panel">
+        <div class="form-row">
+            <label for="latitude">Latitude:</label>
+            <input type="text" id="latitude" readonly>
+            <label for="longitude" style="margin-left: 10px;">Longitude:</label>
+            <input type="text" id="longitude" readonly>
+        </div>
+        
+        <div class="form-row">
+            <label for="radius">Radius (m):</label>
+            <input type="number" id="radius" value="100" min="1" max="10000">
+        </div>
+        
+        <button id="send-button">Report Fire Location</button>
+    </div>
+    
+    <!-- Leaflet JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    
+    <script>
+        // Initialize map centered near a default location
+        const map = L.map('map').setView([40.7128, -74.0060], 13);
+        
+        // Add OpenStreetMap tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+        
+        // Variables to store marker and circle
+        let marker = null;
+        let circle = null;
+        
+        // Get input elements
+        const latInput = document.getElementById('latitude');
+        const lngInput = document.getElementById('longitude');
+        const radiusInput = document.getElementById('radius');
+        const sendButton = document.getElementById('send-button');
+        
+        // Update marker, circle and inputs when map is clicked
+        map.on('click', function(e) {
+            updateLocation(e.latlng);
+        });
+        
+        // Update radius when input changes
+        radiusInput.addEventListener('input', function() {
+            if (marker) {
+                updateCircle();
+            }
+        });
+        
+        // Send button click handler
+        sendButton.addEventListener('click', function() {
+            if (!marker) {
+                alert('Please select a location on the map first');
+                return;
+            }
+            
+            const data = {
+                latitude: parseFloat(latInput.value),
+                longitude: parseFloat(lngInput.value),
+                radius: parseInt(radiusInput.value)
+            };
+            
+            sendToAPI(data);
+        });
+        
+        // Function to update location marker and details
+        function updateLocation(latlng) {
+            // Remove existing marker and circle
+            if (marker) {
+                map.removeLayer(marker);
+            }
+            if (circle) {
+                map.removeLayer(circle);
+            }
+            
+            // Create new marker
+            marker = L.marker(latlng).addTo(map);
+            
+            // Update input fields
+            latInput.value = latlng.lat.toFixed(6);
+            lngInput.value = latlng.lng.toFixed(6);
+            
+            // Create new circle
+            updateCircle();
+        }
+        
+        // Function to update the circle based on radius
+        function updateCircle() {
+            if (circle) {
+                map.removeLayer(circle);
+            }
+            
+            const radius = parseInt(radiusInput.value);
+            const latlng = marker.getLatLng();
+            
+            circle = L.circle(latlng, {
+                radius: radius,
+                className: 'radius-circle'
+            }).addTo(map);
+        }
+        
+        // Function to send data to API
+        function sendToAPI(data) {
+            console.log('Sending data to API:', data);
+            
+            // Implement your actual API call here
+            // Example using fetch:
+            /*
+            fetch('https://your-api-endpoint.com/coordinates', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Success:', data);
+                alert('Data sent successfully!');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error sending data to API');
+            });
+            */
+            
+            // For demo, just show an alert
+            alert(`Data ready to send to API:\nLatitude: ${data.latitude}\nLongitude: ${data.longitude}\nRadius: ${data.radius}m`);
+        }
+        
+        // Try to get user's current location to center the map
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    map.setView([position.coords.latitude, position.coords.longitude], 13);
+                },
+                (error) => {
+                    console.log('Unable to get location:', error.message);
+                }
+            );
+        }
+    </script>
+</body>
+</html>

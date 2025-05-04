@@ -1,34 +1,10 @@
-# results = [
-#     {
-#         "Name": "Grid Sweep",
-#         "Completed": 100,
-#         "Iterations": 351.73,
-#         "Leader Energy": 232.76299999999802,
-#         "Follower Energy": 339.92350000000135,
-#     },
-#     {
-#         "Name": "ACO",
-#         "Completed": 97,
-#         "Iterations": 302.07,
-#         "Leader Energy": 182.68479999999917,
-#         "Follower Energy": 292.0110000000011,
-#     },
-#     {
-#         "Name": "Modified ACO",
-#         "Completed": 100,
-#         "Iterations": 277.81,
-#         "Leader Energy": 165.87939999999833,
-#         "Follower Energy": 267.91850000000005,
-#     }
-# ]
-
 import csv
 import matplotlib.pyplot as plt
 import numpy as np
 
-
+# Read results from CSV file
 results = []
-with open('results2.csv', 'r') as file:
+with open('results.csv', 'r') as file:
     reader = csv.DictReader(file)
     for row in reader:
         results.append({
@@ -39,47 +15,72 @@ with open('results2.csv', 'r') as file:
             "Follower Energy": float(row["Follower Energy"]),
         })
 
-# Data
+# Extract data
 names = [result["Name"] for result in results]
 completed = [result["Completed"] for result in results]
 iterations = [result["Iterations"] for result in results]
 leader_energy = [result["Leader Energy"] for result in results]
 follower_energy = [result["Follower Energy"] for result in results]
 
-# Bar width
-width = 0.2  # Width of the bars
-x = np.arange(len(names))
-
-# Plot
-fig, ax = plt.subplots(figsize=(10, 6))
-bars1 = ax.bar(x - 1.5 * width, completed, width, label="Completed (%)")
-bars2 = ax.bar(x - 0.5 * width, iterations, width, label="Iterations")
-bars3 = ax.bar(x + 0.5 * width, leader_energy, width, label="Leader Energy")
-bars4 = ax.bar(x + 1.5 * width, follower_energy, width, label="Follower Energy")
+# Plot configurations
+x = np.arange(len(names))  # X-axis positions
+width = 0.4  # Width of bars
 
 # Function to add values on top of bars
-def add_values(bars):
+def add_values(bars, ax):
     for bar in bars:
         height = bar.get_height()
         ax.annotate(f'{height:.2f}',
                     xy=(bar.get_x() + bar.get_width() / 2, height),
-                    xytext=(0, 5),  # Offset above the bar
+                    xytext=(0, 1),  # Offset above the bar
                     textcoords="offset points",
                     ha='center', va='bottom', fontsize=10, color='black')
 
-# Adding values
-for bars in [bars1, bars2, bars3, bars4]:
-    add_values(bars)
+# Create 4 separate plots with larger figure size
+fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # 2x2 grid of plots
 
-# Labels and title
-ax.set_xlabel("Fire Detection Strategy")
-ax.set_ylabel("Value")
-ax.set_title("Comparison of Fire Detection Strategies for 100 Simulations")
-ax.set_xticks(x)
-ax.set_xticklabels(names)
-ax.legend()
+# Apply a consistent style for all plots
+# plt.style.use('seaborn-darkgrid')
 
-# Show the plot
-plt.tight_layout()
+# Plot 1: Completion Percentage
+ax1 = axes[0][0]
+bars1 = ax1.bar(x, completed, width, color='royalblue')
+ax1.set_title("Completion Percentage (%)", fontsize=14)
+ax1.set_xticks(x)
+ax1.set_xticklabels(names, rotation=15, fontsize=10)
+ax1.set_ylabel("Completed (%)", fontsize=12)
+add_values(bars1, ax1)
+
+# Plot 2: Iterations Required
+ax2 = axes[0][1]
+bars2 = ax2.bar(x, iterations, width, color='mediumseagreen')
+ax2.set_title("Avg Iterations Required", fontsize=14)
+ax2.set_xticks(x)
+ax2.set_xticklabels(names, rotation=15, fontsize=10)
+ax2.set_ylabel("Iterations", fontsize=12)
+add_values(bars2, ax2)
+
+# Plot 3: Leader Energy Used
+ax3 = axes[1][0]
+bars3 = ax3.bar(x, leader_energy, width, color='indianred')
+ax3.set_title("Avg Leader Energy Used (Joules)", fontsize=14)
+ax3.set_xticks(x)
+ax3.set_xticklabels(names, rotation=15, fontsize=10)
+ax3.set_ylabel("Energy (J)", fontsize=12)
+add_values(bars3, ax3)
+
+# Plot 4: Follower Energy Used
+ax4 = axes[1][1]
+bars4 = ax4.bar(x, follower_energy, width, color='goldenrod')
+ax4.set_title("Avg Follower Energy Used (Joules)", fontsize=14)
+ax4.set_xticks(x)
+ax4.set_xticklabels(names, rotation=15, fontsize=10)
+ax4.set_ylabel("Energy (J)", fontsize=12)
+add_values(bars4, ax4)
+
+# Adjust layout for better spacing and add a main title
+fig.suptitle("Comparison of Fire Detection Strategies", fontsize=16, fontweight='bold')
+
+# Adjust layout and show plot
+plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for the suptitle
 plt.show()
-

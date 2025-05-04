@@ -1,6 +1,5 @@
-# Hawk Tuah
+# Intelligent Fire Detection and Suppression Using Autonomous Drone Swarms
 
-This project demonstrates a **Particle Swarm Optimization (PSO)** algorithm applied to a swarm of drones using DroneKit. The drones optimize their path to a target position while avoiding obstacles, simulating a real-world drone swarm scenario. The system includes functionality to connect drones, control their movement, and optimize swarm performance using PSO.
 
 ## Requirements
 

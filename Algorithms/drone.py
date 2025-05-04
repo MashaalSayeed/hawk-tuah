@@ -1,9 +1,6 @@
 import numpy as np
 import random
 
-from constants import GRID_SIZE, STARTING_FIRE_COUNT, FIRE_OFFSET, FIRE_RANGE
-
-
 # DRONE CONFIGURATION
 DRONE_SPEED = 1
 SENSING_RADIUS = 20
@@ -30,17 +27,24 @@ SEPARATION_DISTANCE = 20
 
 
 class FireGrid:
-    def __init__(self):
-        self.grid = np.zeros((GRID_SIZE, GRID_SIZE))
-        self.spread_rate = np.zeros((GRID_SIZE, GRID_SIZE))
-        self.wind_direction = random.choice([(-1, 0), (1, 0), (0, -1), (0, 1)])
-        self.init_fires()
+    def __init__(self, grid_size, fire_count=5, fire_range=35, fire_offset=(0, 0), spread_rate=BASE_SPREAD_RATE, decay_rate=BASE_DECAY_RATE):
+        self.width, self.height = grid_size
+        self.grid_size = grid_size
+
+        self.starting_fire_count = fire_count
+        self.fire_range = fire_range
+        self.fire_offset = fire_offset
+
+        self.base_spread_rate = spread_rate
+        self.decay_rate = decay_rate
+
+        self.reset()
 
     def init_fires(self):
-        for _ in range(STARTING_FIRE_COUNT):
-            x, y = FIRE_OFFSET[0] + np.random.randint(-FIRE_RANGE, FIRE_RANGE), FIRE_OFFSET[1] + np.random.randint(-FIRE_RANGE, FIRE_RANGE)
+        for _ in range(self.starting_fire_count):
+            x, y = self.fire_offset[0] + np.random.randint(-self.fire_range, self.fire_range), self.fire_offset[1] + np.random.randint(-self.fire_range, self.fire_range)
             self.grid[x, y] = np.random.uniform(0.5, MAX_INTENSITY)
-            self.spread_rate[x, y] = np.random.uniform(0.1, BASE_SPREAD_RATE)
+            self.spread_rate[x, y] = np.random.uniform(0.1, self.base_spread_rate)
 
     def spread_fire(self):
         if random.random() < 0.05:
@@ -48,8 +52,8 @@ class FireGrid:
 
         new_fire = self.grid.copy()
 
-        for i in range(1, GRID_SIZE - 1):
-            for j in range(1, GRID_SIZE - 1):
+        for i in range(1, self.height - 1):
+            for j in range(1, self.width - 1):
                 if self.grid[i, j] > 0:
                     for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1), 
                                    (-1, -1), (-1, 1), (1, -1), (1, 1)]:
@@ -60,14 +64,14 @@ class FireGrid:
                                 spread_chance += WIND_STRENGTH
                             if self.grid[i, j] > 0.5 and np.random.rand() < spread_chance:
                                 new_fire[nx, ny] = self.grid[i, j] * np.random.uniform(0.25, 0.75)
-                                self.spread_rate[nx, ny] = np.random.uniform(0.1, BASE_SPREAD_RATE)
+                                self.spread_rate[nx, ny] = np.random.uniform(0.1, self.base_spread_rate)
                     
                     r = np.random.rand()
                     if r < 0.1:
                         new_fire[i, j] += np.random.uniform(0.03, 0.08)
                         new_fire[i, j] = min(new_fire[i, j], MAX_INTENSITY)
                     elif r < 0.3:
-                        new_fire[i, j] = max(new_fire[i, j] - BASE_DECAY_RATE, 0)
+                        new_fire[i, j] = max(new_fire[i, j] - self.decay_rate, 0)
 
         self.grid = new_fire
 
@@ -75,22 +79,23 @@ class FireGrid:
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
                 nx, ny = x + dx, y + dy
-                if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE:
+                if 0 <= nx < self.width and 0 <= ny < self.height:
                     self.grid[nx, ny] = max(self.grid[nx, ny] - SUPPRESSION_RATE, 0)
 
         # self.grid[x, y] = max(self.grid[x, y] - SUPPRESSION_RATE, 0)
+    
+    def reset(self):
+        self.grid = np.zeros(self.grid_size)
+        self.spread_rate = np.zeros(self.grid_size)
+        self.wind_direction = random.choice([(-1, 0), (1, 0), (0, -1), (0, 1)])
+        self.init_fires()
 
 
 class Drone:
-    def __init__(self, position, role):
-        self.position = position
-        self.velocity = np.zeros(2)
+    def __init__(self, i, role):
+        self.id = f"{role}_{i}"
         self.role = role
-
-        self.best_position = position
-        self.best_score = np.inf
-        self.best_scores = [float('inf'), float('inf')]
-        self.energy_consumed = 0
+        self.reset()
 
     def move_to_target(self, neighbours, target, attraction=ATTRACTION_STRENGTH, separation=SEPARATION_STRENGTH):
         # Use Leader-Follower Algorithm
@@ -142,3 +147,11 @@ class Drone:
         self.energy_consumed += SENSOR_ENERGY
         
         return visible_hotspots
+    
+    def reset(self):
+        self.position = np.random.rand(2) * 20
+        self.velocity = np.zeros(2)
+        self.best_position = self.position
+        self.best_score = np.inf
+        self.best_scores = [float('inf'), float('inf')]
+        self.energy_consumed = 0

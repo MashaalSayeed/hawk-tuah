@@ -2,7 +2,7 @@ import heapq
 import numpy as np
 
 from drone import Drone, FireGrid, SENSING_RADIUS
-from constants import GRID_SIZE
+GRID_SIZE = 200
 
 # ACO CONFIGURATION
 EVAPORATION_RATE = 0.95

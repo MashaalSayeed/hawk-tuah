@@ -5,7 +5,6 @@ import heapq
 import random
 import time
 
-from constants import FIRE_RANGE, GRID_SIZE
 from drone import Drone, FireGrid, MAX_INTENSITY
 from pso_swarm import PSOSwarm, APFSwarm
 from aco_swarm import ACOSwarm, ModifiedACOSwarm
@@ -15,6 +14,11 @@ MAX_ITERATIONS = 1000
 VISUALIZATION = True
 NUM_ENVIRONMENTS = 100
 VIS_CURRENT_SIMULATION = 3
+
+# FIRE CONFIGURATION
+GRID_SIZE = 200
+FIRE_OFFSET = (100, 100)
+FIRE_RANGE = 35
 
 # DRONE CONFIGURATION
 NUM_LEADERS = 5
@@ -101,16 +105,16 @@ class Simulation:
     name = ""
 
     def __init__(self):
-        self.leaders = [Drone(np.random.rand(2) * 20, 'leader') for _ in range(NUM_LEADERS)]
-        self.followers = [Drone(np.random.rand(2) * 20, 'follower') for _ in range(NUM_FOLLOWERS)]
+        self.leaders = [Drone(i, 'leader') for i in range(NUM_LEADERS)]
+        self.followers = [Drone(i, 'follower') for i in range(NUM_FOLLOWERS)]
         self.iteration = 0
 
-        self.fire_grid = FireGrid()
+        self.fire_grid = FireGrid((GRID_SIZE, GRID_SIZE), fire_offset=FIRE_OFFSET, fire_range=FIRE_RANGE)
 
     def find_fire_center(self):
         fire_coords = np.argwhere(self.fire_grid.grid > 0)
         if len(fire_coords) == 0:
-            return np.array([GRID_SIZE // 2, GRID_SIZE // 2])
+            return np.array([self.fire_grid.width // 2, self.fire_grid.height // 2])
         return fire_coords.mean(axis=0)
 
     def run_leader_follower(self):
@@ -146,6 +150,12 @@ class Simulation:
         
         self.iteration += 1
         return True
+    
+    def reset(self):
+        self.iteration = 0
+
+        for drone in self.leaders + self.followers:
+            drone.reset()
 
 
 class Simulation1(Simulation):
@@ -189,8 +199,6 @@ class Simulation2(Simulation):
     def __init__(self):
         super().__init__()
         self.current_state = 'DEPLOY'
-
-        self.fire_grid = FireGrid()
         self.aco_swarm = ACOSwarm(self.leaders)
         self.pso_swarm = PSOSwarm(self.followers)
     
