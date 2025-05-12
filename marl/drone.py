@@ -8,6 +8,7 @@ DRONE_SPEED = 1
 COMMUNICATION_ENERGY = 0.001  # Small constant energy drain for communication (per step)
 IDLE_ENERGY = 0.005  # Energy consumed while idle (per step)
 MOVE_ENERGY = 0.01  # Energy consumed per unit distance traveled (when moving)
+SUPPRESSION_ENERGY = 0.1
 
 # FIRE GRID CONFIGURATION
 BASE_SPREAD_RATE = 0.05
@@ -133,11 +134,16 @@ class Drone:
             distance_traveled = np.linalg.norm(self.velocity)
             energy_consumed = distance_traveled * MOVE_ENERGY
 
+
+        if self.fire_extinguishing:
+            energy_consumed += SUPPRESSION_ENERGY
+
         self.position += self.velocity
         self.position = np.clip(self.position, 0, self.grid_size[0] - 1)
 
         self.battery_level -= energy_consumed
         self.battery_level = max(0, self.battery_level)
+
 
     def suppress_fire(self, fire_grid: FireGrid):
         x, y = self.position

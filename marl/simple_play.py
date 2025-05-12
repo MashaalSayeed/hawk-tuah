@@ -58,7 +58,7 @@ from ray.rllib.env import PettingZooEnv
 import supersuit as ss
 from pettingzoo.utils import parallel_to_aec
 
-from env import FireFightingEnv  # your custom env
+from simple_env import FireFightingEnvSimple  # your custom env
 from pathlib import Path
 import time
 import numpy as np
@@ -71,10 +71,8 @@ ray.init(ignore_reinit_error=True)
 
 # === Environment creator ===
 def env_creator(_):
-    env = FireFightingEnv(grid_size=(80, 80), num_scouts=5, num_suppresors=5)
+    env = FireFightingEnvSimple(grid_size=(80, 80), num_drones=10)
     env = parallel_to_aec(env)  # convert to AEC API
-    env = ss.pad_observations_v0(env)  # pad obs
-    env = ss.pad_action_space_v0(env)  # pad actions
     return PettingZooEnv(env)  # wrap for RLlib
 
 # === Register with Ray Tune ===
@@ -83,15 +81,13 @@ tune.register_env("FireFightingEnv", env_creator)
 
 # === Load trained PPO checkpoint ===
 log_dir = "~/ray_results" 
-checkpoint_path = Path(f"/Users/mash/Projects/Drone/hawk-tuah/marl/ray_results/Mad/PPO_FireFightingEnv_27aa3_00000_0_2025-05-04_20-06-24/checkpoint_000000").expanduser().resolve()
+checkpoint_path = Path(f"/Users/mash/Projects/Drone/hawk-tuah/marl/ray_results/MadWorld/PPO_FireFightingEnv_cde7f_00000_0_2025-05-09_17-20-29/checkpoint_000000").expanduser().resolve()
 # checkpoint_path = Path(f"/Users/mash/ray_results/PPO_2025-04-22_23-30-17/PPO_FireFightingEnv_a634e_00000_0_2025-04-22_23-30-17/checkpoint_000000").expanduser().resolve()
 algo = PPO.from_checkpoint(str(checkpoint_path))
 
 # === Create environment ===
-env = FireFightingEnv(grid_size=(80, 80), num_scouts=5, num_suppresors=5, render_mode='human')  # your custom env (parallel API)
+env = FireFightingEnvSimple(grid_size=(80, 80), num_drones=10, render_mode='human')  # your custom env (parallel API)
 env = parallel_to_aec(env)  # convert to AEC API
-env = ss.pad_observations_v0(env)  # pad obs
-env = ss.pad_action_space_v0(env)  # pad actions
 
 # === Reset the environment ===
 print(env.reset())
@@ -105,8 +101,8 @@ for agent in env.agent_iter():
     if done:
         action = None  # must send None to move to next agent if done
     else:
-        # action = algo.compute_single_action(obs, policy_id="default_policy")
-        action = algo.compute_single_action(obs, policy_id=agent)
+        action = algo.compute_single_action(obs, policy_id="shared_policy")
+        # action = algo.compute_single_action(obs, policy_id=agent)
 
     env.step(action)
     env.render()
