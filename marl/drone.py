@@ -5,31 +5,36 @@ from gymnasium import spaces
 # DRONE CONFIGURATION
 SENSING_RADIUS = 10
 DRONE_SPEED = 1
-COMMUNICATION_ENERGY = 0.001  # Small constant energy drain for communication (per step)
-IDLE_ENERGY = 0.005  # Energy consumed while idle (per step)
-MOVE_ENERGY = 0.01  # Energy consumed per unit distance traveled (when moving)
-SUPPRESSION_ENERGY = 0.1
+COMMUNICATION_ENERGY = 0.0001  # Small constant energy drain for communication (per step)
+IDLE_ENERGY = 0.001  # Energy consumed while idle (per step)
+MOVE_ENERGY = 0.003  # Energy consumed per unit distance traveled (when moving)
+SUPPRESSION_ENERGY = 0.05
 
 # FIRE GRID CONFIGURATION
 BASE_SPREAD_RATE = 0.05
 BASE_DECAY_RATE = 0.04
 WIND_STRENGTH = 0.2
-SUPPRESSION_RATE = 1
+SUPPRESSION_RATE = 0.5
 FIRE_THRESHOLD = 0.1
 MAX_INTENSITY = 1.0
 
 
 class FireGrid:
-    def __init__(self, grid_size, fire_count=10, fire_range=35, fire_offset=(0, 0), spread_rate=BASE_SPREAD_RATE, decay_rate=BASE_DECAY_RATE):
+    def __init__(self, grid_size, fire_count=10, fire_range=30, fire_offset=(0, 0), spread_rate=BASE_SPREAD_RATE, decay_rate=BASE_DECAY_RATE):
         self.width, self.height = grid_size
         self.grid_size = grid_size
 
         self.starting_fire_count = fire_count
         self.fire_range = fire_range
-        self.fire_offset = fire_offset
+        self.fire_offset = grid_size[0] // 2 + fire_offset[0], grid_size[1] // 2 + fire_offset[1]
 
         self.base_spread_rate = spread_rate
         self.decay_rate = decay_rate
+
+        self.step = 0
+
+        self.fire_start_times = {}  # Dictionary to track first start times for each fire
+        self.fire_detection_times = {}  # Dictionary to track first detection times for each fire
 
         self.reset()
 
@@ -38,10 +43,12 @@ class FireGrid:
             x, y = self.fire_offset[0] + np.random.randint(-self.fire_range, self.fire_range), self.fire_offset[1] + np.random.randint(-self.fire_range, self.fire_range)
             self.grid[x, y] = np.random.uniform(0.5, MAX_INTENSITY)
             self.spread_rate[x, y] = np.random.uniform(0.1, self.base_spread_rate)
+            self.fire_start_times[(x, y)] = self.step  # Track the start time of the fire
 
         self.total_fire_count = self.starting_fire_count
 
     def spread_fire(self):
+        self.step += 1
         if random.random() < 0.05:
             self.wind_direction = random.choice([(-1, 0), (1, 0), (0, -1), (0, 1)])
 
@@ -59,6 +66,7 @@ class FireGrid:
                             if self.grid[i, j] > 0.5 and np.random.rand() < spread_chance:
                                 new_fire[nx, ny] = self.grid[i, j] * np.random.uniform(0.25, 0.75)
                                 self.spread_rate[nx, ny] = np.random.uniform(0.1, self.base_spread_rate)
+                                self.fire_start_times[(nx, ny)] = self.step
                     
                     r = np.random.rand()
                     if r < 0.1:
@@ -77,12 +85,25 @@ class FireGrid:
                 if 0 <= nx < self.width and 0 <= ny < self.height:
                     self.grid[nx, ny] = max(self.grid[nx, ny] - SUPPRESSION_RATE, 0)
 
-        # self.grid[x, y] = max(self.grid[x, y] - SUPPRESSION_RATE, 0)
-    
+    def get_fire_positions(self):
+        fire_positions = np.argwhere(self.grid > FIRE_THRESHOLD)
+        fire_positions = [(x, y) for x, y in fire_positions if 0 <= x < self.width and 0 <= y < self.height]
+        return fire_positions
+
+    def detect_fires(self, fire_positions):
+        for fire_position in fire_positions:
+            x, y = int(fire_position[0]), int(fire_position[1])
+            if self.grid[x, y] > FIRE_THRESHOLD and (x, y) not in self.fire_detection_times:
+                self.fire_detection_times[(x, y)] = self.step
+
     def reset(self):
         self.grid = np.zeros(self.grid_size)
         self.spread_rate = np.zeros(self.grid_size)
         self.wind_direction = random.choice([(-1, 0), (1, 0), (0, -1), (0, 1)])
+        self.fire_detection_times = {}  # Reset detection times
+        self.fire_start_times = {}  # Reset start times
+        self.step = 0
+        self.total_fire_count = 0
         self.init_fires()
 
 

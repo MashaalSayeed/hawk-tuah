@@ -81,31 +81,52 @@ tune.register_env("FireFightingEnv", env_creator)
 
 # === Load trained PPO checkpoint ===
 log_dir = "~/ray_results" 
-checkpoint_path = Path(f"/Users/mash/Projects/Drone/hawk-tuah/marl/ray_results/MadWorld/PPO_FireFightingEnv_cde7f_00000_0_2025-05-09_17-20-29/checkpoint_000000").expanduser().resolve()
+# checkpoint_path = Path(f"/Users/mash/Projects/Drone/hawk-tuah/marl/ray_results/MadWorld/PPO_FireFightingEnv_cde7f_00000_0_2025-05-09_17-20-29/checkpoint_000000").expanduser().resolve()
 # checkpoint_path = Path(f"/Users/mash/ray_results/PPO_2025-04-22_23-30-17/PPO_FireFightingEnv_a634e_00000_0_2025-04-22_23-30-17/checkpoint_000000").expanduser().resolve()
+checkpoint_path = Path("/Users/mash/Projects/Drone/hawk-tuah/marl/ray_results/MadWorld/PPO_FireFightingEnv_bb686_00000_0_2025-05-12_22-09-54/checkpoint_000009").expanduser().resolve()
 algo = PPO.from_checkpoint(str(checkpoint_path))
 
 # === Create environment ===
-env = FireFightingEnvSimple(grid_size=(80, 80), num_drones=10, render_mode='human')  # your custom env (parallel API)
+env = FireFightingEnvSimple(grid_size=(60, 60), num_drones=10, render_mode='human', )  # your custom env (parallel API)
 env = parallel_to_aec(env)  # convert to AEC API
 
 # === Reset the environment ===
-print(env.reset())
 
-# === Run using AEC agent iteration loop ===
-mean_reward = []
-for agent in env.agent_iter():
-    obs, reward, done, truncated, info = env.last()
+results = {"Fire Extinguished %": [], "Avg Extinguishing Time": [], "Episode Length": [], "Total Energy Used": [], "Overlaps": [], "Avg Detection Time": [], "Mission Success Rate": []}
+for iter in range(100):
+    env.reset()
 
-    mean_reward.append(reward)
-    if done:
-        action = None  # must send None to move to next agent if done
-    else:
-        action = algo.compute_single_action(obs, policy_id="shared_policy")
-        # action = algo.compute_single_action(obs, policy_id=agent)
+    # === Run using AEC agent iteration loop ===
+    mean_reward = []
+    for agent in env.agent_iter():
+        obs, reward, done, truncated, info = env.last()
 
-    env.step(action)
-    env.render()
-print(f"Mean reward: {sum(mean_reward) / len(mean_reward)}")
-print(env.unwrapped.metrics_logger.calculate_metrics())  # print metrics
+        mean_reward.append(reward)
+        if done:
+            action = None  # must send None to move to next agent if done
+        else:
+            action = algo.compute_single_action(obs, policy_id="shared_policy")
+            # action = algo.compute_single_action(obs, policy_id=agent)
+
+        env.step(action)
+        # env.render()
+    print(f"Mean reward: {sum(mean_reward) / len(mean_reward)}")
+    metrics = env.unwrapped.metrics_logger.calculate_metrics()
+    completed = not env.unwrapped.fire_grid.get_fire_positions() or metrics['Fire Extinguished %'] > 95
+
+    for key, value in metrics.items():
+        results[key].append(value)
+    results["Mission Success Rate"].append(completed)
+    steps = env.unwrapped.fire_grid.step
+    print(f"Simulation {iter} finished after {steps} steps. {completed}, {metrics['Fire Extinguished %']}%")
+
+log = []
+for key, values in results.items():
+    # print(key, values)
+    print(f"{key}: {np.mean(values):.2f} ± {np.std(values):.2f}")
+    log.append(np.mean(values))
+
+with open("results.txt", "a") as f:
+    log = ",".join([f"{x:.2f}" for x in log])
+    f.write(f"{log}\n")
 env.close()

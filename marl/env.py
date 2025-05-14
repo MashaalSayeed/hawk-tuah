@@ -62,12 +62,12 @@ class FireFightingEnv(ParallelEnv):
         "name": "FireFightingEnv"
     }
 
-    def __init__(self, grid_size=(100, 100), num_scouts=2, num_suppresors=3, render_mode=None):
+    def __init__(self, grid_size=(100, 100), num_scouts=2, num_suppresors=3, render_mode=None, initial_fire_count=10):
         self.num_scouts = num_scouts
         self.num_suppresors = num_suppresors
         self.render_mode = render_mode
 
-        self.fire_grid = FireGrid(grid_size)
+        self.fire_grid = FireGrid(grid_size, fire_count=initial_fire_count)
         self.scouts = [ScoutDrone(i, grid_size) for i in range(num_scouts)]
         self.suppressors = [SuppressorDrone(i, grid_size) for i in range(num_suppresors)]
         self.metrics_logger = MetricsLogger()
@@ -196,6 +196,23 @@ class FireFightingEnv(ParallelEnv):
             drone = self.agent_map[agent_id]
             drone.step(action)
 
+        for scout in self.scouts:
+            x, y = int(scout.position[0]), int(scout.position[1])
+            local_fire_grid = scout.sense_fire(self.fire_grid)
+            hotspot_indices = np.where(local_fire_grid > 0)
+
+            offset_x = max(0, x - drone.sensing_radius)
+            offset_y = max(0, y - drone.sensing_radius)
+                
+                # Convert local hotspot coordinates to global coordinates
+            visible_hotspots = np.array([
+                [hotspot_indices[0][i] + offset_x, hotspot_indices[1][i] + offset_y]
+                for i in range(len(hotspot_indices[0]))
+            ])
+
+            self.fire_grid.detect_fires(visible_hotspots)
+
+
         suppressing = 0
         for suppressor in self.suppressors:
             if suppressor.fire_extinguishing or self.fire_grid.grid[suppressor.position[0], suppressor.position[1]] > 0:
@@ -224,6 +241,7 @@ class FireFightingEnv(ParallelEnv):
         if env_done or all(terminations.values()):
             self.metrics_logger.log_final_battery(self.agent_map.values())
             self.metrics_logger.total_fire_cells = self.fire_grid.total_fire_count
+            self.metrics_logger.log_fire_detection_time(self.fire_grid)
 
         # Update fire grid
         self.fire_grid.spread_fire()
@@ -245,13 +263,20 @@ class FireFightingEnv(ParallelEnv):
         
         if self.render_mode == "human":
             if self.fig is None or self.ax is None:
-                self.fig, self.ax = plt.subplots()
+                self.fig, self.ax = plt.subplots(figsize=(10, 10))  # Increase figure size
 
             self.ax.clear()
         else:
-            self.fig, self.ax = plt.subplots()
+            self.fig, self.ax = plt.subplots(figsize=(10, 10))  # Increase figure size
 
-        self.ax.imshow(self.fire_grid.grid.T, cmap="hot", interpolation="nearest")
+        fire_plot = self.ax.imshow(self.fire_grid.grid.T, cmap="hot", interpolation="nearest")
+
+        # Add a colorbar to show fire intensity
+        if not hasattr(self, 'colorbar') or self.colorbar is None:
+            self.colorbar = self.fig.colorbar(fire_plot, ax=self.ax, orientation="vertical")
+            self.colorbar.set_label("Fire Intensity")
+        else:
+            self.colorbar.update_normal(fire_plot)
 
         scout_positions = [drone.position for drone in self.scouts]
         suppressor_positions = [drone.position for drone in self.suppressors]
@@ -259,15 +284,19 @@ class FireFightingEnv(ParallelEnv):
         if scout_positions:
             scout_x, scout_y = zip(*scout_positions)
             self.ax.scatter(scout_x, scout_y, color="blue", label="Scout", s=20)
+            for x, y in scout_positions:
+                circle = plt.Circle((x, y), 10, color="blue", fill=False, linestyle="dotted")
+                self.ax.add_artist(circle)
         if suppressor_positions:
             suppressor_x, suppressor_y = zip(*suppressor_positions)
             self.ax.scatter(suppressor_x, suppressor_y, color="green", label="Suppressor", s=20)
 
-        self.ax.legend()
         self.ax.set_xlim(0, self.fire_grid.grid.shape[0])
         self.ax.set_ylim(0, self.fire_grid.grid.shape[1])
         self.ax.set_title("Firefighting Environment")
 
+        # Add legend for scouts and suppressors
+        self.ax.legend(loc="upper right", title="Legend")
 
         if self.render_mode == "human":
             plt.pause(0.01)

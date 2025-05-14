@@ -208,8 +208,9 @@ tune.run(
     "PPO",
     name="MadWorld",
     config=config.to_dict(),
-    stop={"training_iteration": 500},
+    stop={"training_iteration": 400},
     storage_path=results_path,
+    checkpoint_freq=200,
     checkpoint_at_end=True
 )
 

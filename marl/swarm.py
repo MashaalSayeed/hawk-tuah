@@ -7,10 +7,10 @@ import time
 import heapq
 
 W = 1
-C1 = 0.75
-C2 = 0.75
+C1 = 0.1
+C2 = 1.0
 
-EVAPORATION_RATE = 0.95
+EVAPORATION_RATE = 0.9
 DEPOSIT_AMOUNT = 1.0
 
 SENSING_RADIUS = 10
@@ -20,6 +20,9 @@ class PSOSwarm:
         self.drones = drones
         self.best_score_idx = 0
         self.best_position = self.drones[self.best_score_idx].position
+        self.w = W
+        self.c1 = C1
+        self.c2 = C2
 
         self.drone_bests = {
             drone.id: {
@@ -31,19 +34,21 @@ class PSOSwarm:
 
     def run(self, fire_grid: FireGrid, target_positions):
         target_positions = np.array(list(target_positions))
+        extinguish_drones = []
         if len(target_positions) > 0:
             self.best_position = target_positions[0]
 
         for drone in self.drones:
+            current_intensity = fire_grid.grid[int(drone.position[0]), int(drone.position[1])]
             if len(target_positions) == 0:
                 drone.velocity = np.zeros(2)
                 continue
 
             r1, r2 = random.random(), random.random()
             drone.velocity = (
-                W * drone.velocity + 
-                C1 * r1 * (self.drone_bests[drone.id]["position"] - drone.position) + 
-                C2 * r2 * (self.best_position - drone.position)
+                self.w * drone.velocity + 
+                self.c1 * r1 * (self.drone_bests[drone.id]["position"] - drone.position) + 
+                self.c2 * r2 * (self.best_position - drone.position)
             )
 
             pos = int(drone.position[0]), int(drone.position[1])
@@ -57,7 +62,8 @@ class PSOSwarm:
                     "score": score
                 }
 
-            if distance.min() < 1:
+            if current_intensity > 0 or distance.min() < 1:
+                extinguish_drones.append(drone.id)
                 self.drone_bests[drone.id] = {
                     "position": drone.position.copy(),
                     "score": np.inf
@@ -66,11 +72,13 @@ class PSOSwarm:
         best_scores = np.array([self.drone_bests[drone.id]["score"] for drone in self.drones])
         self.best_score_idx = np.argmin(best_scores)
         self.best_position = self.drones[self.best_score_idx].position
-        return True
+        self.w *= 0.99
+        self.c1 *= 0.99
+        return extinguish_drones
     
 
 class APFSwarm:
-    def __init__(self, drones: list[SuppressorDrone], ka=10.0, kr=0.0, d0=5.0):
+    def __init__(self, drones: list[SuppressorDrone], ka=10.0, kr=0.0, d0=10.0):
         self.drones = drones
         self.ka = ka  # Attractive force coefficient
         self.kr = kr  # Repulsive force coefficient
@@ -117,13 +125,13 @@ class APFSwarm:
         """ Calculate repulsive force from fire zones and nearby drones. """
         repulsive_force = np.zeros(2)
 
-        # Repulsive force from obstacles (e.g., fire)
-        pos_x, pos_y = int(drone.position[0]), int(drone.position[1])
-        radius = 2
-        if 0 <= pos_x < fire_grid.grid.shape[0] and 0 <= pos_y < fire_grid.grid.shape[1]:
-            fire_intensity = np.sum(fire_grid.grid[pos_x - radius:pos_x + radius, pos_y - radius:pos_y + radius])
-            if fire_intensity > 0:  # Strong repulsive force if near fire zone
-                repulsive_force += self.kr * (1 / (fire_intensity + 1e-6))
+        # # Repulsive force from obstacles (e.g., fire)
+        # pos_x, pos_y = int(drone.position[0]), int(drone.position[1])
+        # radius = 2
+        # if 0 <= pos_x < fire_grid.grid.shape[0] and 0 <= pos_y < fire_grid.grid.shape[1]:
+        #     fire_intensity = np.sum(fire_grid.grid[pos_x - radius:pos_x + radius, pos_y - radius:pos_y + radius])
+        #     if fire_intensity > 0:  # Strong repulsive force if near fire zone
+        #         repulsive_force += self.kr * (1 / (fire_intensity + 1e-6))
 
         # Repulsion from other drones
         for other_drone in self.drones:
@@ -135,10 +143,103 @@ class APFSwarm:
         return repulsive_force
     
 
-class ModifiedACOSwarm:
+def generate_sweep_path(search_region, step):
+    lx, ly, ux, uy = search_region  # Extract search region boundaries
+    path = []
+    
+    for row in range(lx, ux, step):
+        if (row - lx) // step % 2 == 0:  # Alternate row direction for efficiency
+            path.extend([(row, col) for col in range(ly, uy, step)])
+        else:
+            path.extend([(row, col) for col in range(uy - 1, ly - 1, -step)])
+    
+    return path
+
+
+def assign_sweep_paths(drones, search_region, sensing_radius):
+    paths = []
+    lx, ly, ux, uy = search_region
+    num_drones = len(drones)
+
+    # Divide search region into horizontal strips
+    step = max(2, sensing_radius // 2)  # Smaller steps to improve coverage
+    strip_height = (ux - lx) // num_drones  
+
+    for i, drone in enumerate(drones):
+        start_row = lx + i * strip_height
+        drone_region = (start_row, ly, min(start_row + strip_height, ux), uy)
+        paths.append(generate_sweep_path(drone_region, step))  # Generate path for each drone's region
+
+    return paths
+
+
+class GridSweepSwarm:
     def __init__(self, drones: list[Drone], grid_size=(100, 100)):
+        self.drones = drones
+        self.grid_size = grid_size
+
+        self.search_region = (0, 0, grid_size[0], grid_size[1])
+        self.sweep_paths = assign_sweep_paths(self.drones, self.search_region, SENSING_RADIUS // 2)
+        self.current_targets = {drone: path[0] for drone, path in zip(self.drones, self.sweep_paths)}
+    
+    def start(self, search_region):
+        self.search_region = search_region
+        self.sweep_paths = assign_sweep_paths(self.drones, self.search_region, SENSING_RADIUS // 2)
+        self.current_targets = {drone: path[0] for drone, path in zip(self.drones, self.sweep_paths)}
+
+    def run(self, fire_grid: FireGrid):
+        targets_queue = []
+        for drone in self.drones:
+            target = self.current_targets[drone]
+            local_fire_grid = drone.sense_fire(fire_grid)
+            hotspot_indices = np.where(local_fire_grid > 0)
+
+            if np.linalg.norm(np.array(target) - np.array(drone.position)) < 2:
+                next_index = self.sweep_paths[self.drones.index(drone)].index(target) + 1
+                if next_index < len(self.sweep_paths[self.drones.index(drone)]):
+                    self.current_targets[drone] = self.sweep_paths[self.drones.index(drone)][next_index]
+                else:
+                    self.current_targets[drone] = self.sweep_paths[self.drones.index(drone)][0]
+
+            target_position = self.current_targets[drone]
+
+            # Detect fire in the area
+            if len(hotspot_indices[0]) > 0:
+                x, y = drone.position
+                x, y = int(x), int(y)
+                offset_x = max(0, x - drone.sensing_radius)
+                offset_y = max(0, y - drone.sensing_radius)
+                # Convert local hotspot coordinates to global coordinates
+                visible_hotspots = np.array([
+                    [hotspot_indices[0][i] + offset_x, hotspot_indices[1][i] + offset_y]
+                    for i in range(len(hotspot_indices[0]))
+                ])
+
+                for h in visible_hotspots:
+                    intensity = fire_grid.grid[h[0], h[1]]
+                    targets_queue.append((float(-intensity), tuple(h)))
+
+            
+            # Move towards the target
+            direction = target_position - drone.position
+            distance = np.linalg.norm(direction)
+            if distance > 1e-3:
+                velocity = (direction / distance)
+                drone.velocity = velocity
+            else:
+                drone.velocity = np.zeros(2)
+
+        targets_found = []
+        while targets_queue:
+            _, target = heapq.heappop(targets_queue)
+            targets_found.append(target)
+        return targets_found
+
+class ModifiedACOSwarm:
+    def __init__(self, drones: list[Drone], grid_size=(100, 100), modified=True):
         self.pheromones = np.zeros(grid_size)
         self.drones = drones
+        self.modified = modified
         self.search_region = (0, 0, grid_size[0], grid_size[1])
     
     def get_neighbors(self, pos):
@@ -199,7 +300,10 @@ class ModifiedACOSwarm:
                 fire_intensity = np.array([np.sum(fire_grid.grid[n[0]-radius:n[0]+radius, n[1]-radius:n[1]+radius]) for n in neighbours])
                 fire_intensity = np.maximum(fire_intensity, 1e-6)
 
-                probabilities = (1 / pheromone_levels) * fire_intensity # Modified ACO algorithm
+                if self.modified:
+                    probabilities = (1 / pheromone_levels) * fire_intensity # Modified ACO algorithm
+                else:
+                    probabilities = pheromone_levels * fire_intensity
                 probabilities /= np.sum(probabilities)
 
                 target_position = neighbours[np.random.choice(len(neighbours), p=probabilities)]
@@ -222,15 +326,26 @@ class ModifiedACOSwarm:
 
 
 class Simulation:
-    def __init__(self, env: FireFightingEnv):
+    def __init__(self, env: FireFightingEnv, detection_algorithm="mod_aco", suppression_algorithm="apf"):
         super().__init__()
         self.env = env
         grid_size = self.env.fire_grid.grid.shape
 
-        self.aco_swarm = ModifiedACOSwarm(self.env.scouts, grid_size=grid_size)
-        self.apf_swarm = APFSwarm(self.env.suppressors)
+        if detection_algorithm == "aco":
+            self.aco_swarm = ModifiedACOSwarm(self.env.scouts, grid_size=grid_size, modified=False)
+        elif detection_algorithm == "mod_aco":
+            self.aco_swarm = ModifiedACOSwarm(self.env.scouts, grid_size=grid_size)
+        elif detection_algorithm == "grid":
+            self.aco_swarm = GridSweepSwarm(self.env.scouts, grid_size=grid_size)
+        
+        if suppression_algorithm == "apf":
+            self.apf_swarm = APFSwarm(self.env.suppressors)
+        elif suppression_algorithm == "pso":
+            self.apf_swarm = PSOSwarm(self.env.suppressors)
+        # self.aco_swarm = ModifiedACOSwarm(self.env.scouts, grid_size=grid_size)
+        # self.apf_swarm = PSOSwarm(self.env.suppressors)
 
-        self.aco_swarm.start((0, 0, grid_size[0], grid_size[1]))
+        self.aco_swarm.start((SENSING_RADIUS // 2, SENSING_RADIUS // 2, grid_size[0] - SENSING_RADIUS // 2, grid_size[1] - SENSING_RADIUS // 2))
     
     def run_iteration(self):
         targets_found = self.aco_swarm.run(self.env.fire_grid)
@@ -256,31 +371,125 @@ class Simulation:
         return self.env.reset(seed)
 
 
+# if __name__ == "__main__":
+#     np.random.seed(1)
+#     random.seed(1)
+
+#     # Initialize the environment
+#     env = FireFightingEnv(grid_size=(80, 80), num_scouts=5, num_suppresors=5, render_mode="human")
+#     simulation = Simulation(env, detection_algorithm="mod_aco", suppression_algorithm="apf")
+    
+#     # Reset the environment
+#     obs, infos = simulation.reset(seed=42)
+#     import matplotlib.pyplot as plt
+    
+#     for i in range(1000):
+#         obs, rewards, terminations, truncations, infos = simulation.run_iteration()
+        
+#         # Render the environment
+#         # env.render()
+#         # time.sleep(0.5)
+#         # if i == 40:
+#         #     for drone in simulation.aco_swarm.drones:
+#         #         plt.scatter(drone.position[0], drone.position[1], c='blue', label=f'Drone {drone.id}')
+#         #         print(drone.velocity)
+#         #         plt.arrow(drone.position[0], drone.position[1], drone.velocity[0] * 5, drone.velocity[1] * 5, 
+#         #                   color='blue', head_width=1, head_length=1, length_includes_head=True)
+                
+#         #     plt.imshow(simulation.aco_swarm.pheromones, cmap='Greens', interpolation='nearest')
+#         #     plt.colorbar(label='Pheromone Intensity')
+#         #     plt.title('Pheromone Map')
+#         #     plt.xlabel('X')
+#         #     plt.ylabel('Y')
+#         #     plt.show()
+#         # print(f"Step {i+1}:")
+        
+#         # Check if all agents are done
+#         if all(terminations.values()):
+#             print("All agents terminated!")
+#             break
+
+#     print(f"Simulation finished after {i+1} steps.")
+#     print(env.metrics_logger.calculate_metrics())
+            
+
+#     # Plot the pheromone map of the ACO swarm
+
+#     env.close()
+
+
 if __name__ == "__main__":
+
     np.random.seed(1)
     random.seed(1)
-
+    
     # Initialize the environment
     env = FireFightingEnv(grid_size=(80, 80), num_scouts=5, num_suppresors=5, render_mode="human")
-    simulation = Simulation(env)
+    simulation = Simulation(env, detection_algorithm="aco", suppression_algorithm="pso")
     
     # Reset the environment
-    obs, infos = simulation.reset(seed=42)
+    import matplotlib.pyplot as plt
     
-    # Run the simulation for 100 steps
-    for i in range(1000):
-        obs, rewards, terminations, truncations, infos = simulation.run_iteration()
-        
-        # Render the environment
-        env.render()
-        time.sleep(0.5)
-        
-        # Check if all agents are done
-        if all(terminations.values()):
-            print("All agents terminated!")
-            break
 
-    print(f"Simulation finished after {i+1} steps.")
-    print(env.metrics_logger.calculate_metrics())
+    results = {"Fire Extinguished %": [], "Avg Extinguishing Time": [], "Episode Length": [], "Total Energy Used": [], "Overlaps": [], "Avg Detection Time": [], "Mission Success Rate": []}
+
+    for iter in range(100):
+        obs, infos = simulation.reset(seed=1)
+        for i in range(1000):
+            obs, rewards, terminations, truncations, infos = simulation.run_iteration()
             
+            # Render the environment
+            # env.render()
+            # time.sleep(0.5)
+            # if i == 40:
+            #     for drone in simulation.aco_swarm.drones:
+            #         plt.scatter(drone.position[0], drone.position[1], c='blue', label=f'Drone {drone.id}')
+            #         print(drone.velocity)
+            #         plt.arrow(drone.position[0], drone.position[1], drone.velocity[0] * 5, drone.velocity[1] * 5, 
+            #                   color='blue', head_width=1, head_length=1, length_includes_head=True)
+                    
+            #     plt.imshow(simulation.aco_swarm.pheromones, cmap='Greens', interpolation='nearest')
+            #     plt.colorbar(label='Pheromone Intensity')
+            #     plt.title('Pheromone Map')
+            #     plt.xlabel('X')
+            #     plt.ylabel('Y')
+            #     plt.show()
+            # print(f"Step {i+1}:")
+
+            # if iter == 74:
+            #     env.render()
+            #     time.sleep(0.1)
+            
+            # Check if all agents are done
+            if all(terminations.values()):
+                print("All agents terminated!")
+                break
+
+        # print(env.metrics_logger.calculate_metrics())
+        metrics = env.metrics_logger.calculate_metrics()
+        for key, value in metrics.items():
+            results[key].append(value)
+
+        completed = not env.fire_grid.get_fire_positions() or metrics['Fire Extinguished %'] > 95
+        results["Mission Success Rate"].append(completed)
+        print(f"Simulation {iter} finished after {i+1} steps. {completed}, {metrics['Fire Extinguished %']}%")
+
+    # # Print the average results
+    log = []
+    for key, values in results.items():
+        # print(key, values)
+        print(f"{key}: {np.mean(values):.2f} ± {np.std(values):.2f}")
+        log.append(np.mean(values))
+    
+    with open("results.txt", "a") as f:
+        log = ",".join([f"{x:.2f}" for x in log])
+        f.write(f"{log}\n")
+
+        
+
+
+            
+
+    # Plot the pheromone map of the ACO swarm
+
     env.close()

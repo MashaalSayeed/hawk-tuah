@@ -8,6 +8,8 @@ import random
 import matplotlib.pyplot as plt
 import heapq
 from dronekit import LocationGlobalRelative
+import contextily as ctx
+from pyproj import Transformer
 
 
 # FIRE GRID CONFIGURATION
@@ -349,38 +351,107 @@ class SwarmSimulation:
             time.sleep(1)
         print("Swarm reached the destination.")
 
-    def create_plot(self):
+    def create_plot(self, fire_location: LocationGlobalRelative, fire_radius):
         grid_size = self.fire_grid.grid.shape
-        # Plot the fire grid and drone positions at each step
-        plt.imshow(self.fire_grid.grid.T, cmap="hot", origin="lower", extent=(0, grid_size[0], 0, grid_size[1]))
-        plt.title(f"Fire Grid and Drone Positions - Step {self.step + 1}")
+        transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+        fire_x, fire_y = transformer.transform(fire_location.lon, fire_location.lat)
+        display_size = fire_radius * 2
+
+        # Create a figure and axis using subplots
+        self.ax.clear()  # Clear the previous plot
+        self.ax.set_title(f"Fire Grid and Drone Positions - Step {self.step + 1}")
 
         for drone in self.drones:
             # Convert latitude and longitude to meters relative to the fire grid's center
-            drone_x = int((drone.position["lat"] - fire_location.lat) * 111320 + fire_radius)
-            drone_y = int((drone.position["lon"] - fire_location.lon) * 40075000 * math.cos(math.radians(fire_location.lat)) / 360 + fire_radius)
-            plt.scatter(drone_x, drone_y, label=f"Drone {drone.connection_string}", s=100)
+            drone_x, drone_y = transformer.transform(drone.position["lon"], drone.position["lat"])
+            # drone_x = int((drone.position["lat"] - fire_location.lat) * 111320 + fire_radius)
+            # drone_y = int((drone.position["lon"] - fire_location.lon) * 40075000 * math.cos(math.radians(fire_location.lat)) / 360 + fire_radius)
+            self.ax.scatter(drone_x, drone_y, label=f"Drone {drone.connection_string}", s=100)
             circle = plt.Circle((drone_x, drone_y), 10, color='blue', fill=False, linestyle='--', linewidth=1.5)
-            plt.gca().add_artist(circle)
+            self.ax.add_patch(circle)
 
-        plt.legend()
-        plt.xlabel("X Coordinate")
-        plt.ylabel("Y Coordinate")
+        try:
+            ctx.add_basemap(self.ax, source=ctx.providers.OpenStreetMap.Mapnik)
+        except Exception as e:
+            print(f"Error loading map tiles: {e}")
+            print("If you don't have internet connection or contextily installed, you'll see a blank map.")
+
+        self.ax.imshow(
+            np.ma.masked_where(self.fire_grid.grid.T == 0, self.fire_grid.grid.T), 
+            cmap="Reds", 
+            origin="lower", 
+            extent=(fire_x - fire_radius, fire_x + fire_radius, fire_y - fire_radius, fire_y + fire_radius), 
+            alpha=0.6
+        )
+
+        self.ax.legend()
+        self.ax.set_xlim(fire_x - display_size, fire_x + display_size)
+        self.ax.set_ylim(fire_y - display_size, fire_y + display_size)
+        self.ax.set_xlabel("X Coordinate")
+        self.ax.set_ylabel("Y Coordinate")
         plt.pause(0.1)  # Pause to visualize each step
-        plt.clf()  # Clear the plot for the next step
+
+    # def create_plot(self, fire_location: LocationGlobalRelative, fire_radius):
+    #     grid = self.fire_grid.grid  # shape (50, 50)
+    #     grid_shape = grid.shape
+    #     cell_size = fire_radius * 2 / grid_shape[0]  # estimate cell size in meters
+
+    #     # Transformer for GPS to Web Mercator
+    #     transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+    #     fire_x, fire_y = transformer.transform(fire_location.lon, fire_location.lat)
+
+    #     # Compute the extent of the grid in Web Mercator (centered on fire_x, fire_y)
+    #     half_width = grid_shape[0] * cell_size / 2
+    #     half_height = grid_shape[1] * cell_size / 2
+    #     extent = (
+    #         fire_x - half_width,
+    #         fire_x + half_width,
+    #         fire_y - half_height,
+    #         fire_y + half_height
+    #     )
+
+    #     # Clear previous plot
+    #     self.ax.clear()
+    #     self.ax.set_title(f"Fire Grid and Drone Positions - Step {self.step + 1}")
+
+    #     # Plot the fire heatmap grid
+
+
+    #     # Plot each drone
+    #     for drone in self.drones:
+    #         drone_x, drone_y = transformer.transform(drone.position["lon"], drone.position["lat"])
+    #         self.ax.scatter(drone_x, drone_y, label=f"Drone {drone.connection_string}", s=100, c='blue')
+    #         circle = plt.Circle((drone_x, drone_y), 10, color='blue', fill=False, linestyle='--', linewidth=1.5)
+    #         self.ax.add_patch(circle)
+
+    #     # Add OpenStreetMap basemap
+    #     try:
+    #         ctx.add_basemap(self.ax, source=ctx.providers.OpenStreetMap.Mapnik, crs='EPSG:3857')
+    #     except Exception as e:
+    #         print(f"Error loading map tiles: {e}")
+
+    #     self.ax.imshow(grid.T, cmap="hot", origin="lower", extent=extent, alpha=0.6)
+
+    #     self.ax.legend()
+    #     self.ax.set_xlim(fire_x - 2*fire_radius, fire_x + 2*fire_radius)
+    #     self.ax.set_ylim(fire_y - 2*fire_radius, fire_y + 2*fire_radius)
+    #     plt.pause(0.1)
 
     def run_swarm(self, fire_location: LocationGlobalRelative, fire_radius):
         self.running = True
         grid_size = (fire_radius * 2, fire_radius * 2)
 
         self.fire_grid = FireGrid(grid_size, fire_count=3, fire_range=fire_radius, fire_offset=(fire_radius, fire_radius))
-        self.acoswarm = ACOSwarm(self.drones, grid_size, fire_location)
-        self.apf_swarm = APFSwarm(self.drones, fire_location)
+        scout_drones = [d for d in self.drones if d.role == "scout"]
+        suppressor_drones = [d for d in self.drones if d.role == "suppressor"]
+
+        self.acoswarm = ACOSwarm(scout_drones, grid_size, fire_location)
+        self.apf_swarm = APFSwarm(suppressor_drones, fire_location)
 
         self.initialize_swarm(fire_location.alt)
         self.run_leader_follower(fire_location)
 
-        plt.figure(figsize=(10, 10))  # Create a single figure for all steps
+        self.fig, self.ax = plt.subplots(figsize=(6, 6))  # Create a single figure and axis for all steps
 
         self.step = 0
         last_time = time.time()
@@ -388,7 +459,7 @@ class SwarmSimulation:
             if self.step > self.max_steps:
                 break
 
-            self.create_plot()
+            self.create_plot(fire_location, fire_radius)
 
             if self.fire_grid.is_empty():
                 break
@@ -419,7 +490,7 @@ if __name__ == "__main__":
     drones = [
         Drone("udp:127.0.0.1:14551", role="scout"),
         Drone("udp:127.0.0.1:14561", role="suppressor"),
-        # Drone("tcp:127.0.0.1:5782")
+        Drone("tcp:127.0.0.1:14571", role="scout"),
     ]
 
     fire_location = LocationGlobalRelative(26.861406, 75.812826, 10)

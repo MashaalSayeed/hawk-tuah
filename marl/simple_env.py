@@ -61,11 +61,11 @@ class FireFightingEnvSimple(ParallelEnv):
         "name": "FireFightingEnv"
     }
 
-    def __init__(self, grid_size=(100, 100), num_drones=5, render_mode=None):
+    def __init__(self, grid_size=(100, 100), num_drones=5, render_mode=None, initial_fire_count=3):
         self.num_drones = num_drones
         self.render_mode = render_mode
 
-        self.fire_grid = FireGrid(grid_size)
+        self.fire_grid = FireGrid(grid_size, fire_count=initial_fire_count, fire_range=15)
         self.drones = [Drone(i, "drone", grid_size) for i in range(num_drones)]
         self.metrics_logger = MetricsLogger()
 
@@ -160,7 +160,7 @@ class FireFightingEnvSimple(ParallelEnv):
 
     def set_reward(self):
         # Initialize base reward
-        rewards = {agent: -0.1 for agent in self.agents}
+        rewards = {agent: -0.05 for agent in self.agents}
 
         fire_locations = np.argwhere(self.fire_grid.grid > 0)  # locations of active fire
         for agent_id in self.agents:
@@ -171,17 +171,24 @@ class FireFightingEnvSimple(ParallelEnv):
                 rewards[agent_id] -= 1.0
 
             # Bonus for suppressing fire
-            if self.fire_grid.grid[drone.position[0], drone.position[1]] > 0:
-                rewards[agent_id] += 1.0
-            elif drone.fire_extinguishing:
-                rewards[agent_id] += -0.5
-
-            # Bonus for scouting near fire
-            drone_pos = np.array(drone.position)
-
             local_fire_intensity = drone.sense_fire(self.fire_grid)
             fires_found = np.argwhere(local_fire_intensity > 0)
+            x, y = int(drone.position[0]), int(drone.position[1])
+            fire_in_radius = np.any(self.fire_grid.grid[max(0, x-1):min(self.fire_grid.grid.shape[0], x+1),
+                                                        max(0, y-1):min(self.fire_grid.grid.shape[1], y+1)] > 0)
+            if fire_in_radius or drone.fire_extinguishing:
+                rewards[agent_id] += 2.0
+            elif drone.fire_extinguishing:
+                rewards[agent_id] += -0.1
+
             rewards[agent_id] += 0.05 * len(fires_found)
+
+            # Negative reward for being too close to other agents
+            for other_agent_id, other_drone in self.agent_map.items():
+                if agent_id != other_agent_id:
+                    distance = np.linalg.norm(np.array(drone.position) - np.array(other_drone.position))
+                    if distance < 5:
+                        rewards[agent_id] -= (5 - distance) * 0.1
 
         return rewards
     
@@ -247,11 +254,33 @@ class FireFightingEnvSimple(ParallelEnv):
             drone = self.agent_map[agent_id]
             drone.step(action)
 
+        for drone in self.drones:
+            x, y = int(drone.position[0]), int(drone.position[1])
+
+            local_fire_grid = drone.sense_fire(self.fire_grid)
+            hotspot_indices = np.where(local_fire_grid > 0)
+
+            offset_x = max(0, x - drone.sensing_radius)
+            offset_y = max(0, y - drone.sensing_radius)
+                
+            # Convert local hotspot coordinates to global coordinates
+            visible_hotspots = np.array([
+                [hotspot_indices[0][i] + offset_x, hotspot_indices[1][i] + offset_y]
+                for i in range(len(hotspot_indices[0]))
+            ])
+
+            self.fire_grid.detect_fires(visible_hotspots)
+
         suppressing = 0
         for drone in self.drones:
-            if drone.fire_extinguishing or self.fire_grid.grid[drone.position[0], drone.position[1]] > 0:
+            x, y = int(drone.position[0]), int(drone.position[1])
+            fire_in_radius = np.any(self.fire_grid.grid[max(0, x-1):min(self.fire_grid.grid.shape[0], x+1),
+                                                        max(0, y-1):min(self.fire_grid.grid.shape[1], y+1)] > 0)
+            
+            if drone.fire_extinguishing or fire_in_radius:
                 drone.suppress_fire(self.fire_grid)
                 suppressing += 1
+            
 
         # Check for collisions
         positions = {(drone.position[0], drone.position[1]) for drone in self.agent_map.values()}
@@ -276,6 +305,7 @@ class FireFightingEnvSimple(ParallelEnv):
 
         if env_done or all(terminations.values()) or max_steps_reached:
             self.metrics_logger.log_final_battery(self.agent_map.values())
+            self.metrics_logger.log_fire_detection_time(self.fire_grid)
             self.metrics_logger.total_fire_cells = self.fire_grid.total_fire_count
 
         # Update fire grid
